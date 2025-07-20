@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
+import { BookmarkProvider } from '../src/contexts/BookmarkContext';
 
 function AppContent() {
   const { colorScheme } = useTheme();
@@ -33,7 +34,9 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <AppContent />
+      <BookmarkProvider>
+        <AppContent />
+      </BookmarkProvider>
     </ThemeProvider>
   );
 }

@@ -22,6 +22,7 @@ import { bookmarkService } from '../../src/services/bookmarks';
 import { clusteringService } from '../../src/services/clustering';
 import { authService } from '../../src/services/auth';
 import { BookmarkData, BookmarkCluster, ClusteringMethod } from '../../src/types';
+import { useBookmarks } from '../../src/contexts/BookmarkContext';
 import { ThemedText } from '../../src/components/ThemedText';
 import { ThemedView } from '../../src/components/ThemedView';
 import { Colors, Gradients, getGradient } from '../../src/constants/Colors';
@@ -31,9 +32,8 @@ import { useRouter } from 'expo-router';
 const { width } = Dimensions.get('window');
 
 export default function ClustersScreen() {
-  const [bookmarks, setBookmarks] = useState<BookmarkData[]>([]);
+  const { bookmarks, loading, refreshBookmarks } = useBookmarks();
   const [clusters, setClusters] = useState<BookmarkCluster[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [clusteringMethod, setClusteringMethod] = useState<ClusteringMethod>('auto');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -49,9 +49,9 @@ export default function ClustersScreen() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      loadClusters();
+      generateClusters();
     }
-  }, [clusteringMethod]); // Re-cluster when method changes
+  }, [clusteringMethod, bookmarks]); // Re-cluster when method or bookmarks change
 
   const checkAuthAndLoadClusters = async () => {
     try {
@@ -59,7 +59,8 @@ export default function ClustersScreen() {
       setIsAuthenticated(authenticated);
       
       if (authenticated) {
-        await loadClusters();
+        await refreshBookmarks();
+        generateClusters();
       } else {
         router.replace('/auth/login');
       }
@@ -69,100 +70,20 @@ export default function ClustersScreen() {
     }
   };
 
-  const loadClusters = async () => {
+  const generateClusters = async () => {
     try {
-      setLoading(true);
-      
-      // Load bookmarks for clustering
-      let bookmarksToCluster: BookmarkData[] = [];
-      try {
-        bookmarksToCluster = await bookmarkService.getBookmarks();
-        setBookmarks(bookmarksToCluster);
-      } catch (error) {
-        // Fallback to sample data
-        bookmarksToCluster = getSampleBookmarks();
-        setBookmarks(bookmarksToCluster);
-      }
-
-      const generatedClusters = await clusteringService.createClusters(bookmarksToCluster, clusteringMethod);
+      const generatedClusters = await clusteringService.createClusters(bookmarks, clusteringMethod);
       setClusters(generatedClusters);
-      
     } catch (error) {
-      Alert.alert('Error', 'Failed to load clusters');
-      console.error('Load clusters error:', error);
-    } finally {
-      setLoading(false);
+      Alert.alert('Error', 'Failed to generate clusters');
+      console.error('Cluster generation error:', error);
     }
   };
 
-  const getSampleBookmarks = (): BookmarkData[] => [
-    {
-      id: '1',
-      url: 'https://huggingface.co/papers',
-      title: 'HuggingFace Papers',
-      content: 'Latest AI research papers and models from the HuggingFace community.',
-      domain: 'huggingface.co',
-      previewImage: 'https://huggingface.co/front/assets/huggingface_logo-noborder.svg',
-      isRead: false,
-      isFavorite: true,
-      categories: ['Learning', 'Research'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      url: 'https://github.com/microsoft/vscode',
-      title: 'VS Code Repository',
-      content: 'Visual Studio Code - The popular code editor by Microsoft.',
-      domain: 'github.com',
-      previewImage: 'https://github.com/microsoft/vscode/raw/main/resources/linux/code.png',
-      isRead: true,
-      isFavorite: false,
-      categories: ['Git/Code', 'Tools'],
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-      id: '3',
-      url: 'https://www.twitter.com/reactjs',
-      title: 'React on Twitter',
-      content: 'Official React Twitter account with updates and news.',
-      domain: 'twitter.com',
-      isRead: false,
-      isFavorite: false,
-      categories: ['Social', 'Git/Code'],
-      createdAt: new Date(Date.now() - 172800000).toISOString(),
-      updatedAt: new Date(Date.now() - 172800000).toISOString(),
-    },
-    {
-      id: '4',
-      url: 'https://arxiv.org/abs/2301.08123',
-      title: 'Deep Learning for Medical Image Segmentation',
-      content: 'This paper reviews state-of-the-art deep learning techniques for medical image segmentation.',
-      domain: 'arxiv.org',
-      isRead: false,
-      isFavorite: true,
-      categories: ['Research', 'Learning'],
-      createdAt: new Date(Date.now() - 259200000).toISOString(),
-      updatedAt: new Date(Date.now() - 259200000).toISOString(),
-    },
-    {
-      id: '5',
-      url: 'https://nodejs.org/en/docs',
-      title: 'Node.js Documentation',
-      content: 'Node.js is a JavaScript runtime built on Chrome\'s V8 JavaScript engine.',
-      domain: 'nodejs.org',
-      isRead: false,
-      isFavorite: false,
-      categories: ['Git/Code', 'Tools'],
-      createdAt: new Date(Date.now() - 345600000).toISOString(),
-      updatedAt: new Date(Date.now() - 345600000).toISOString(),
-    },
-  ];
-
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadClusters();
+    await refreshBookmarks();
+    await generateClusters();
     setRefreshing(false);
   };
 

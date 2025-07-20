@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { bookmarkService } from '../../src/services/bookmarks';
 import { authService } from '../../src/services/auth';
 import { BookmarkData } from '../../src/types';
+import { useBookmarks } from '../../src/contexts/BookmarkContext';
 import { ThemedText } from '../../src/components/ThemedText';
 import { ThemedView } from '../../src/components/ThemedView';
 import AddBookmarkModal from '../../src/components/AddBookmarkModal';
@@ -33,9 +34,8 @@ import { useTheme } from '../../src/contexts/ThemeContext';
 const { width } = Dimensions.get('window');
 
 export default function BookmarksScreen() {
-  const [allBookmarks, setAllBookmarks] = useState<BookmarkData[]>([]);
+  const { bookmarks: allBookmarks, loading, refreshBookmarks, addBookmark, deleteBookmark, markAsRead, toggleFavorite } = useBookmarks();
   const [filteredBookmarks, setFilteredBookmarks] = useState<BookmarkData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
@@ -116,7 +116,7 @@ export default function BookmarksScreen() {
       setIsAuthenticated(authenticated);
       
       if (authenticated) {
-        await loadBookmarks();
+        await refreshBookmarks();
       } else {
         router.replace('/auth/login');
       }
@@ -126,100 +126,29 @@ export default function BookmarksScreen() {
     }
   };
 
-  const loadBookmarks = async () => {
-    try {
-      setLoading(true);
-      
-      // Try to load from backend first
-      try {
-        // Load all bookmarks without search filter - we'll filter client-side
-        const data = await bookmarkService.getBookmarks();
-        setAllBookmarks(data);
-      } catch (error) {
-        // If backend is not available, preserve existing bookmarks if any, otherwise show sample data
-        console.log('Backend not available, preserving local bookmarks or showing sample data');
-        setAllBookmarks(prev => {
-          // If we have existing bookmarks (user added some), keep them
-          // Otherwise, show sample data for demo
-          return prev.length > 0 ? prev : getSampleBookmarks();
-        });
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load bookmarks');
-      console.error('Load bookmarks error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getSampleBookmarks = (): BookmarkData[] => {
-    return [
-      {
-        id: '1',
-        url: 'https://huggingface.co/papers',
-        title: 'HuggingFace Papers',
-        content: 'Latest AI research papers and models from the HuggingFace community.',
-        domain: 'huggingface.co',
-        previewImage: 'https://huggingface.co/front/assets/huggingface_logo-noborder.svg',
-        isRead: false,
-        isFavorite: true,
-        categories: ['Learning', 'Research'],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: '2',
-        url: 'https://github.com/microsoft/vscode',
-        title: 'VS Code Repository',
-        content: 'Visual Studio Code - The popular code editor by Microsoft.',
-        domain: 'github.com',
-        previewImage: 'https://github.com/microsoft/vscode/raw/main/resources/linux/code.png',
-        isRead: true,
-        isFavorite: false,
-        categories: ['Git/Code', 'Tools'],
-        createdAt: new Date(Date.now() - 86400000).toISOString(),
-        updatedAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-      {
-        id: '3',
-        url: 'https://www.twitter.com/reactjs',
-        title: 'React on Twitter',
-        content: 'Official React Twitter account with updates and news.',
-        domain: 'twitter.com',
-        isRead: false,
-        isFavorite: false,
-        categories: ['Social', 'Git/Code'],
-        createdAt: new Date(Date.now() - 172800000).toISOString(),
-        updatedAt: new Date(Date.now() - 172800000).toISOString(),
-      },
-    ];
-  };
-
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadBookmarks();
+    await refreshBookmarks();
     setRefreshing(false);
   };
 
-  const toggleFavorite = async (id: string) => {
+  const handleToggleFavorite = async (id: string) => {
     try {
-      await bookmarkService.toggleFavorite(id);
-      await loadBookmarks(); // Refresh list
+      await toggleFavorite(id);
     } catch (error) {
       Alert.alert('Error', 'Failed to toggle favorite');
     }
   };
 
-  const markAsRead = async (id: string) => {
+  const handleMarkAsRead = async (id: string) => {
     try {
-      await bookmarkService.markAsRead(id);
-      await loadBookmarks(); // Refresh list
+      await markAsRead(id);
     } catch (error) {
       Alert.alert('Error', 'Failed to mark as read');
     }
   };
 
-  const deleteBookmark = async (id: string) => {
+  const handleDeleteBookmark = async (id: string) => {
     Alert.alert(
       'Delete Bookmark',
       'Are you sure you want to delete this bookmark?',
@@ -233,8 +162,8 @@ export default function BookmarksScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Remove from UI immediately
-              setAllBookmarks(prev => prev.filter(bookmark => bookmark.id !== id));
+              // Remove from shared state
+              deleteBookmark(id);
               
               // Try to delete from backend
               try {
@@ -246,7 +175,7 @@ export default function BookmarksScreen() {
               console.error('Failed to delete bookmark:', error);
               Alert.alert('Error', 'Failed to delete bookmark');
               // Reload bookmarks to restore state
-              await loadBookmarks();
+              await refreshBookmarks();
             }
           },
         },
@@ -315,7 +244,7 @@ export default function BookmarksScreen() {
         updatedAt: new Date().toISOString(),
       };
       
-      setAllBookmarks(prev => [newBookmark, ...prev]);
+      addBookmark(newBookmark);
       
       // Try to save to backend, but don't worry if it fails
       try {
@@ -430,7 +359,7 @@ export default function BookmarksScreen() {
             <TouchableOpacity
               onPress={(e) => {
                 e.stopPropagation();
-                deleteBookmark(item.id);
+                handleDeleteBookmark(item.id);
               }}
               style={styles.deleteButton}
             >

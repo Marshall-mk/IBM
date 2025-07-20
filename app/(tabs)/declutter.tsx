@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { bookmarkService } from '../../src/services/bookmarks';
 import { authService } from '../../src/services/auth';
 import { BookmarkData } from '../../src/types';
+import { useBookmarks } from '../../src/contexts/BookmarkContext';
 import { Colors, Gradients, getGradient } from '../../src/constants/Colors';
 import { useTheme } from '../../src/contexts/ThemeContext';
 import { useRouter } from 'expo-router';
@@ -49,9 +50,8 @@ const getPreviewImageWithFallback = (item: BookmarkData, useScreenshot: boolean 
 };
 
 export default function DeclutterScreen() {
-  const [bookmarks, setBookmarks] = useState<BookmarkData[]>([]);
+  const { bookmarks, loading, refreshBookmarks, deleteBookmarks } = useBookmarks();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [processed, setProcessed] = useState(0);
   
@@ -98,7 +98,7 @@ export default function DeclutterScreen() {
       setIsAuthenticated(authenticated);
       
       if (authenticated) {
-        await loadBookmarks();
+        await refreshBookmarks();
       } else {
         router.replace('/auth/login');
       }
@@ -108,64 +108,6 @@ export default function DeclutterScreen() {
     }
   };
 
-  const loadBookmarks = async () => {
-    try {
-      setLoading(true);
-      
-      // Try to load from backend first
-      try {
-        const data = await bookmarkService.getBookmarks();
-        setBookmarks(data);
-      } catch (error) {
-        // Fallback to sample data
-        setBookmarks(getSampleBookmarks());
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load bookmarks');
-      console.error('Load bookmarks error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getSampleBookmarks = (): BookmarkData[] => [
-    {
-      id: '1',
-      url: 'https://arxiv.org/abs/2403.18802',
-      title: 'LLM Agents Are Superhuman At Fact Checking',
-      content: 'LLM breaks down long texts into sets of individual facts. Checks each fact w/ multi-step reasoning processes. Using Google & determining whether fact is supported by the search results. 20x cheaper than humans',
-      domain: 'arxiv.org',
-      isRead: false,
-      isFavorite: true,
-      categories: ['AI', 'Research', 'LLM'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: '2',
-      url: 'https://github.com/pytorch/pytorch',
-      title: 'PyTorch: Tensors and Dynamic neural networks in Python',
-      content: 'PyTorch is a Python package that provides two high-level features: Tensor computation with strong GPU acceleration and Deep Neural Networks built on a tape-based autograd system.',
-      domain: 'github.com',
-      isRead: true,
-      isFavorite: false,
-      categories: ['Python', 'Deep Learning', 'Framework'],
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-      id: '3',
-      url: 'https://medium.com/@ai_researcher/medical-ai-breakthrough',
-      title: 'AI Breakthrough in Medical Diagnosis: 95% Accuracy in Cancer Detection',
-      content: 'Researchers have developed an AI system that can detect cancer with 95% accuracy using advanced machine learning algorithms and medical imaging.',
-      domain: 'medium.com',
-      isRead: false,
-      isFavorite: true,
-      categories: ['AI', 'Medical', 'Research'],
-      createdAt: new Date(Date.now() - 172800000).toISOString(),
-      updatedAt: new Date(Date.now() - 172800000).toISOString(),
-    },
-  ];
 
   const resetCardPosition = () => {
     Animated.parallel([
@@ -225,15 +167,19 @@ export default function DeclutterScreen() {
     if (!currentBookmark) return;
 
     try {
-      await bookmarkService.deleteBookmark(currentBookmark.id);
-      // Remove from local state
-      setBookmarks(prev => prev.filter(b => b.id !== currentBookmark.id));
+      // Remove from shared state immediately
+      deleteBookmarks([currentBookmark.id]);
+      
+      // Try to delete from backend
+      try {
+        await bookmarkService.deleteBookmark(currentBookmark.id);
+      } catch (error) {
+        console.log('Backend unavailable, bookmark deleted locally only:', error);
+      }
       
       moveToNext();
     } catch (error) {
       console.error('Failed to delete bookmark:', error);
-      // Still remove from UI even if API call fails
-      setBookmarks(prev => prev.filter(b => b.id !== currentBookmark.id));
       moveToNext();
     }
   };

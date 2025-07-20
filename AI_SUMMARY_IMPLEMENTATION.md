@@ -77,6 +77,7 @@ The AI-powered summarization feature has been successfully implemented in the In
 
 #### **Environment Variables** (already configured)
 
+
 ### How to Use
 
 1. **Open Clusters View**: Navigate to the clusters tab

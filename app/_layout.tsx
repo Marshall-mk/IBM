@@ -17,7 +17,7 @@ function AppContent() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style="auto" translucent backgroundColor="transparent" />
     </NavigationThemeProvider>
   );
 }

@@ -75,7 +75,7 @@ export const Gradients = {
     button: ['#4A90E2', '#3b82f6'] as const,
     fab: ['#FF6B9D', '#C471F5'] as const,
     header: ['rgba(255, 255, 255, 0.95)', 'rgba(248, 250, 252, 0.95)'] as const,
-    tabBar: [lightGradientColors[1], lightGradientColors[2]] as const,
+    tabBar: ['rgba(255, 255, 255, 0.7)', 'rgba(248, 250, 252, 0.8)'] as const,
   },
   
   // Dark mode gradients

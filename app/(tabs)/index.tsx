@@ -26,6 +26,7 @@ import { BookmarkData } from '../../src/types';
 import { useBookmarks } from '../../src/contexts/BookmarkContext';
 import { ThemedText } from '../../src/components/ThemedText';
 import { ThemedView } from '../../src/components/ThemedView';
+import { SummaryViewer } from '../../src/components/SummaryViewer';
 import AddBookmarkModal from '../../src/components/AddBookmarkModal';
 import { UserMenuModal } from '../../src/components/UserMenuModal';
 import { Colors, Gradients, getGradient } from '../../src/constants/Colors';
@@ -43,6 +44,7 @@ export default function BookmarksScreen() {
   const [fabScale] = useState(new Animated.Value(1));
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [summaryBookmark, setSummaryBookmark] = useState<BookmarkData | null>(null);
   const [failedScreenshots, setFailedScreenshots] = useState<Set<string>>(new Set());
   const router = useRouter();
   const { colorScheme, isDarkMode } = useTheme();
@@ -266,7 +268,17 @@ export default function BookmarksScreen() {
     }
   };
 
-  const handleOpenLink = (url: string) => {
+  const handleOpenLink = (url: string, bookmark?: BookmarkData) => {
+    // Handle summary cards specially
+    if (url.startsWith('intellimark://summary/')) {
+      if (bookmark?.content) {
+        setSummaryBookmark(bookmark);
+      } else {
+        Alert.alert('Summary', 'Summary content not available');
+      }
+      return;
+    }
+    
     Linking.openURL(url).catch(() => {
       Alert.alert('Error', 'Unable to open link');
     });
@@ -310,7 +322,7 @@ export default function BookmarksScreen() {
             marginLeft: index % 2 === 1 ? 8 : 0,
           }
         ]}
-        onPress={() => handleOpenLink(item.url)}
+        onPress={() => handleOpenLink(item.url, item)}
         activeOpacity={0.7}
       >
         <LinearGradient
@@ -321,31 +333,67 @@ export default function BookmarksScreen() {
           style={styles.bookmarkCardGradient}
         >
 
-        {/* Rich webpage preview */}
+        {/* Rich webpage preview or AI Summary visual */}
         <View style={styles.previewContainer}>
-          <Image
-            source={getPreviewImageWithFallback(item, !failedScreenshots.has(item.id))}
-            style={[
-              styles.previewImage,
-              failedScreenshots.has(item.id) && styles.faviconFallback
-            ]}
-            defaultSource={require('../../assets/images/icon.png')}
-            resizeMode={failedScreenshots.has(item.id) ? "contain" : "cover"}
-            onError={() => {
-              console.log('Screenshot failed for:', item.domain, 'falling back to favicon');
-              setFailedScreenshots(prev => new Set([...prev, item.id]));
-            }}
-          />
+          {item.url.startsWith('intellimark://summary/') ? (
+            // AI Summary custom preview
+            <LinearGradient
+              colors={['#FF6B9D', '#8B5FBF', '#4A90E2']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.aiSummaryPreview}
+            >
+              <View style={styles.aiSummaryContent}>
+                <Ionicons name="sparkles" size={24} color="white" style={styles.aiSummaryIcon} />
+                <Text style={styles.aiSummaryTitle}>AI Summary</Text>
+                <View style={styles.aiSummaryLines}>
+                  <View style={[styles.aiSummaryLine, { width: '70%' }]} />
+                  <View style={[styles.aiSummaryLine, { width: '50%' }]} />
+                  <View style={[styles.aiSummaryLine, { width: '80%' }]} />
+                </View>
+              </View>
+            </LinearGradient>
+          ) : (
+            // Regular webpage preview
+            <Image
+              source={getPreviewImageWithFallback(item, !failedScreenshots.has(item.id))}
+              style={[
+                styles.previewImage,
+                failedScreenshots.has(item.id) && styles.faviconFallback
+              ]}
+              defaultSource={require('../../assets/images/icon.png')}
+              resizeMode={failedScreenshots.has(item.id) ? "contain" : "cover"}
+              onError={() => {
+                console.log('Screenshot failed for:', item.domain, 'falling back to favicon');
+                setFailedScreenshots(prev => new Set([...prev, item.id]));
+              }}
+            />
+          )}
         </View>
 
         {/* Bottom content */}
         <View style={styles.bottomContent}>
           {/* Domain badge in text area */}
           <View style={styles.domainRow}>
-            <View style={[styles.domainBadgeBottom, { backgroundColor: 'rgba(0,0,0,0.1)' }]}>
-              <Ionicons name="globe-outline" size={12} color={Colors[colorScheme ?? 'light'].tabIconDefault} />
-              <Text style={[styles.domainTextBottom, { color: Colors[colorScheme ?? 'light'].tabIconDefault }]}>
-                {item.domain}
+            <View style={[styles.domainBadgeBottom, { 
+              backgroundColor: item.url.startsWith('intellimark://summary/')
+                ? 'rgba(255, 107, 157, 0.2)'
+                : 'rgba(0,0,0,0.1)'
+            }]}>
+              <Ionicons 
+                name={item.url.startsWith('intellimark://summary/') ? "sparkles" : "globe-outline"} 
+                size={12} 
+                color={item.url.startsWith('intellimark://summary/') 
+                  ? '#FF6B9D' 
+                  : Colors[colorScheme ?? 'light'].tabIconDefault
+                } 
+              />
+              <Text style={[styles.domainTextBottom, { 
+                color: item.url.startsWith('intellimark://summary/')
+                  ? '#FF6B9D'
+                  : Colors[colorScheme ?? 'light'].tabIconDefault 
+              }]}>
+                {item.url.startsWith('intellimark://summary/') ? 'AI Summary' : item.domain}
               </Text>
             </View>
           </View>
@@ -567,6 +615,15 @@ export default function BookmarksScreen() {
           onClose={() => setShowUserMenu(false)}
           onNavigate={handleUserMenuNavigate}
         />
+
+        {/* Summary Viewer */}
+        {summaryBookmark && (
+          <SummaryViewer
+            bookmark={summaryBookmark}
+            visible={!!summaryBookmark}
+            onClose={() => setSummaryBookmark(null)}
+          />
+        )}
       </LinearGradient>
     </SafeAreaView>
   );
@@ -825,5 +882,38 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  aiSummaryPreview: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiSummaryContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  aiSummaryIcon: {
+    marginBottom: 6,
+    opacity: 0.9,
+  },
+  aiSummaryTitle: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+    opacity: 0.95,
+  },
+  aiSummaryLines: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 4,
+  },
+  aiSummaryLine: {
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 1,
   },
 });

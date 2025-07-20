@@ -107,6 +107,10 @@ class AuthService {
     return await apiService.isAuthenticated();
   }
 
+  async getToken(): Promise<string | null> {
+    return await AsyncStorage.getItem('accessToken');
+  }
+
   private async storeUser(user: User): Promise<void> {
     await AsyncStorage.setItem('user', JSON.stringify(user));
   }

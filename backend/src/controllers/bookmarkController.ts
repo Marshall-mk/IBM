@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { BookmarkService } from '../services/bookmarkService';
+import { ContentExtractorService } from '../services/contentExtractor';
+import { AIService } from '../services/aiService';
 import { 
   APIResponse, 
   BookmarkData, 
@@ -10,6 +12,14 @@ import {
 } from '../types';
 
 const bookmarkService = new BookmarkService();
+let aiService: AIService | null = null;
+
+// Initialize AI service with error handling
+try {
+  aiService = new AIService();
+} catch (error) {
+  console.warn('AI service not available:', error instanceof Error ? error.message : 'Unknown error');
+}
 
 export const validateCreateBookmark = [
   body('url')
@@ -562,3 +572,201 @@ export const bulkDelete = async (
     });
   }
 };
+
+// AI Summarization validation
+export const validateSummaryRequest = [
+  body('bookmarkIds')
+    .isArray({ min: 1 })
+    .withMessage('At least one bookmark ID is required'),
+  body('bookmarkIds.*')
+    .isString()
+    .withMessage('All bookmark IDs must be strings'),
+  body('options')
+    .optional()
+    .isObject()
+    .withMessage('Options must be an object'),
+  body('options.maxLength')
+    .optional()
+    .isInt({ min: 100, max: 2000 })
+    .withMessage('Max length must be between 100 and 2000 words'),
+  body('options.style')
+    .optional()
+    .isIn(['brief', 'detailed', 'bullet-points'])
+    .withMessage('Style must be brief, detailed, or bullet-points'),
+];
+
+// AI Summarization endpoint
+export const generateSummary = async (
+  req: RequestWithUser,
+  res: Response<APIResponse<{ summary: BookmarkData }>>
+): Promise<Response<APIResponse<{ summary: BookmarkData }>> | void> => {
+  try {
+    // Check authentication
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'User not authenticated',
+          code: 'NOT_AUTHENTICATED',
+        },
+      });
+    }
+
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: errors.array(),
+        },
+      });
+    }
+
+    // Check if AI service is available
+    if (!aiService) {
+      return res.status(503).json({
+        success: false,
+        error: {
+          message: 'AI service is not available. Please check server configuration.',
+          code: 'AI_SERVICE_UNAVAILABLE',
+        },
+      });
+    }
+
+    const { bookmarkIds, options = {} } = req.body;
+
+    // Fetch bookmarks from database
+    const bookmarks = await Promise.all(
+      bookmarkIds.map((id: string) => bookmarkService.getBookmark(id, req.user!.id))
+    );
+
+    // Filter out null bookmarks (not found or not owned by user)
+    const validBookmarks = bookmarks.filter((bookmark): bookmark is BookmarkData => 
+      bookmark !== null
+    );
+
+    if (validBookmarks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          message: 'No valid bookmarks found',
+          code: 'BOOKMARKS_NOT_FOUND',
+        },
+      });
+    }
+
+    // Use a hybrid approach: extract content via API service, then analyze with AI
+    const extractedContents = await Promise.allSettled(
+      validBookmarks.map(async (bookmark) => {
+        try {
+          // Try to extract content using a web service API
+          const content = await extractContentViaAPI(bookmark.url, bookmark.title);
+          return content;
+        } catch (error) {
+          console.warn(`Failed to extract content from ${bookmark.url}:`, error);
+          throw error;
+        }
+      })
+    );
+
+    // Process successful extractions
+    const successfulExtractions = extractedContents
+      .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+      .map(result => result.value);
+
+    if (successfulExtractions.length === 0) {
+      return res.status(422).json({
+        success: false,
+        error: {
+          message: `Could not extract readable content from any of the ${validBookmarks.length} URLs. Please ensure the URLs contain accessible text content.`,
+          code: 'CONTENT_EXTRACTION_FAILED',
+        },
+      });
+    }
+
+    console.log(`Successfully extracted content from ${successfulExtractions.length} out of ${validBookmarks.length} URLs`);
+
+    // Generate AI summary using the extracted content
+    const summaryResponse = await aiService.generateSummary({
+      urls: successfulExtractions.map(c => c.url),
+      titles: successfulExtractions.map(c => c.title),
+      contents: successfulExtractions,
+      options,
+    });
+
+    // Create a new bookmark for the summary
+    const summaryTitle = validBookmarks.length === 1 
+      ? `Summary: ${validBookmarks[0]?.title || 'Article'}`
+      : `Summary of ${validBookmarks.length} articles`;
+
+    // Create categories and date that will group the summary with the source cluster
+    // For category clusters: use all unique categories from source bookmarks
+    const allSourceCategories = validBookmarks.flatMap(b => b.categories || []);
+    const uniqueSourceCategories = [...new Set(allSourceCategories)];
+    const summaryCategories = ['ai-summary', ...uniqueSourceCategories];
+
+    // For date clusters: use the most recent bookmark's creation date to ensure clustering
+    const mostRecentBookmark = validBookmarks.reduce((latest, current) => {
+      return new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest;
+    });
+
+    const summaryBookmark = await bookmarkService.createBookmarkWithDate(req.user!.id, {
+      url: `intellimark://summary/${Date.now()}`,
+      title: summaryTitle,
+      content: summaryResponse.summary,
+      categories: summaryCategories,
+    }, mostRecentBookmark.createdAt.toString()); // Use source bookmark's date for clustering
+
+    res.json({
+      success: true,
+      data: { summary: summaryBookmark },
+      message: `AI summary generated successfully from ${validBookmarks.length} articles using direct web access`,
+    });
+
+  } catch (error) {
+    console.error('Summary generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: error instanceof Error ? error.message : 'Failed to generate summary',
+        code: 'SUMMARY_GENERATION_ERROR',
+      },
+    });
+  }
+
+};
+
+// Helper function to extract content using a web API service
+async function extractContentViaAPI(url: string, title: string): Promise<any> {
+  try {
+    // Use Jina AI Reader API for content extraction
+    const response = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+      headers: {
+        'Accept': 'text/plain',
+        'User-Agent': 'IntelliMark/1.0',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const content = await response.text();
+    
+    if (content.length < 200) {
+      throw new Error('Insufficient content extracted');
+    }
+
+    return {
+      url,
+      title,
+      content: content.slice(0, 8000), // Limit to 8000 characters
+      wordCount: content.split(' ').length,
+    };
+  } catch (error) {
+    throw new Error(`Content extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}

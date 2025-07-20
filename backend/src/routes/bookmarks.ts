@@ -13,6 +13,8 @@ import {
   validateCreateBookmark,
   validateUpdateBookmark,
   validateSearch,
+  generateSummary,
+  validateSummaryRequest,
 } from '../controllers/bookmarkController';
 import { authenticateToken } from '../middleware/auth';
 
@@ -34,5 +36,8 @@ router.delete('/:id', deleteBookmark);
 router.patch('/:id/favorite', toggleFavorite);
 router.patch('/:id/read', markAsRead);
 router.post('/bulk-delete', bulkDelete);
+
+// AI features
+router.post('/ai-summarize', validateSummaryRequest, generateSummary);
 
 export default router;

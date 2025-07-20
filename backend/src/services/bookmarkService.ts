@@ -88,6 +88,33 @@ export class BookmarkService {
     return this.transformBookmark(bookmark);
   }
 
+  async createBookmarkWithDate(userId: string, data: {
+    url: string;
+    title: string;
+    content?: string;
+    categories?: string[];
+  }, createdAt: string): Promise<BookmarkData> {
+    const { url, title, content, categories = [] } = data;
+
+    // Extract domain from URL
+    const domain = this.extractDomain(url);
+
+    const bookmark = await prisma.bookmark.create({
+      data: {
+        url,
+        title,
+        content: content || null,
+        domain,
+        userId,
+        categories: JSON.stringify(categories),
+        createdAt: new Date(createdAt),
+        updatedAt: new Date(),
+      },
+    });
+
+    return this.transformBookmark(bookmark);
+  }
+
   async updateBookmark(id: string, userId: string, data: Partial<BookmarkData>): Promise<BookmarkData | null> {
     const bookmark = await prisma.bookmark.findFirst({
       where: { id, userId },

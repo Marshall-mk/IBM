@@ -21,7 +21,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { bookmarkService } from '../../src/services/bookmarks';
 import { clusteringService } from '../../src/services/clustering';
 import { authService } from '../../src/services/auth';
+import { AIService } from '../../src/services/aiService';
 import { BookmarkData, BookmarkCluster, ClusteringMethod } from '../../src/types';
+import { SummaryViewer } from '../../src/components/SummaryViewer';
 import { useBookmarks } from '../../src/contexts/BookmarkContext';
 import { ThemedText } from '../../src/components/ThemedText';
 import { ThemedView } from '../../src/components/ThemedView';
@@ -187,6 +189,8 @@ export default function ClustersScreen() {
 
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
   const [selectedBookmarks, setSelectedBookmarks] = useState<Set<string>>(new Set());
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryBookmark, setSummaryBookmark] = useState<BookmarkData | null>(null);
 
   const getFaviconUrl = (domain: string) => {
     return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
@@ -203,6 +207,82 @@ export default function ClustersScreen() {
     
     const thumbUrl = `https://image.thum.io/get/width/400/crop/300/noanimate/${item.url}`;
     return { uri: thumbUrl };
+  };
+
+  const handleGenerateSummary = async (bookmarkIds: string[]) => {
+    try {
+      setIsGeneratingSummary(true);
+      
+      // Get authentication token
+      const token = await authService.getToken();
+      if (!token) {
+        Alert.alert('Error', 'Authentication required. Please log in again.');
+        router.replace('/auth/login');
+        return;
+      }
+
+      // Show confirmation dialog with options
+      Alert.alert(
+        'Generate AI Summary',
+        `Create an AI-powered summary of ${bookmarkIds.length} selected articles?`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Generate',
+            onPress: async () => {
+              try {
+                // Generate summary
+                const response = await AIService.generateSummary(
+                  bookmarkIds,
+                  {
+                    style: 'detailed',
+                    maxLength: 500,
+                    includeKeyPoints: true,
+                  },
+                  token
+                );
+
+                // Clear selection and close modal
+                setSelectedBookmarks(new Set());
+                setExpandedCluster(null);
+
+                // Refresh bookmarks and regenerate clusters to show new summary
+                await refreshBookmarks();
+                await generateClusters();
+
+                // Show success message
+                Alert.alert(
+                  'Summary Generated!',
+                  'Your AI summary has been created and added to this cluster.',
+                  [
+                    {
+                      text: 'OK',
+                      style: 'default',
+                    },
+                  ]
+                );
+              } catch (error) {
+                console.error('Summary generation failed:', error);
+                Alert.alert(
+                  'Summary Failed',
+                  error instanceof Error 
+                    ? error.message 
+                    : 'Failed to generate summary. Please try again.',
+                );
+              }
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Summary preparation failed:', error);
+      Alert.alert('Error', 'Failed to prepare summary generation.');
+    } finally {
+      setIsGeneratingSummary(false);
+    }
   };
 
   const renderStackedCards = (cluster: BookmarkCluster) => {
@@ -281,22 +361,38 @@ export default function ClustersScreen() {
             <TouchableOpacity onPress={() => setExpandedCluster(null)}>
               <Ionicons name="close" size={24} color={Colors[colorScheme ?? 'light'].text} />
             </TouchableOpacity>
-            <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
-              {cluster.title}
-            </Text>
+            {selectedBookmarks.size === 0 && (
+              <Text style={[styles.expandedTitle, { color: Colors[colorScheme ?? 'light'].text }]}>
+                {cluster.title}
+              </Text>
+            )}
             {selectedBookmarks.size > 0 ? (
-              <TouchableOpacity 
-                onPress={() => {
-                  // Handle selection action
-                  console.log('Selected bookmarks:', Array.from(selectedBookmarks));
-                  setSelectedBookmarks(new Set());
-                  setExpandedCluster(null);
-                }}
-              >
-                <Text style={[styles.selectButton, { color: Colors[colorScheme ?? 'light'].tint }]}>
-                  Done ({selectedBookmarks.size})
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.selectionActions}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.summaryButton]}
+                  onPress={() => handleGenerateSummary(Array.from(selectedBookmarks))}
+                  disabled={isGeneratingSummary}
+                >
+                  {isGeneratingSummary ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="sparkles" size={16} color="#fff" />
+                  )}
+                  <Text style={styles.actionButtonText}>
+                    {isGeneratingSummary ? 'Generating...' : `Summary (${selectedBookmarks.size})`}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => {
+                    setSelectedBookmarks(new Set());
+                  }}
+                  style={[styles.actionButton, styles.cancelButton]}
+                >
+                  <Text style={[styles.actionButtonText, { color: Colors[colorScheme ?? 'light'].tabIconDefault }]}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               <Text style={[styles.instructionText, { color: Colors[colorScheme ?? 'light'].tabIconDefault }]}>
                 Tap to visit • Hold to select
@@ -320,6 +416,18 @@ export default function ClustersScreen() {
                 ]}
                 onPress={async () => {
                   try {
+                    // Handle summary cards specially
+                    if (bookmark.url.startsWith('intellimark://summary/')) {
+                      // Close the cluster modal first to avoid conflicts
+                      setExpandedCluster(null);
+                      
+                      // Small delay to ensure modal transition completes
+                      setTimeout(() => {
+                        setSummaryBookmark(bookmark);
+                      }, 100);
+                      return;
+                    }
+                    
                     const canOpen = await Linking.canOpenURL(bookmark.url);
                     if (canOpen) {
                       await Linking.openURL(bookmark.url);
@@ -350,17 +458,38 @@ export default function ClustersScreen() {
                   }
                   style={styles.expandedCardGradient}
                 >
-                  {/* Rich webpage preview */}
+                  {/* Rich webpage preview or AI Summary visual */}
                   <View style={styles.expandedPreviewContainer}>
-                    <Image
-                      source={getPreviewImageWithFallback(bookmark)}
-                      style={styles.expandedPreviewImage}
-                      defaultSource={require('../../assets/images/icon.png')}
-                      resizeMode="cover"
-                      onError={() => {
-                        console.log('Screenshot failed for:', bookmark.domain);
-                      }}
-                    />
+                    {bookmark.url.startsWith('intellimark://summary/') ? (
+                      // AI Summary custom preview
+                      <LinearGradient
+                        colors={['#FF6B9D', '#8B5FBF', '#4A90E2']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.aiSummaryPreview}
+                      >
+                        <View style={styles.aiSummaryContent}>
+                          <Ionicons name="sparkles" size={32} color="white" style={styles.aiSummaryIcon} />
+                          <Text style={styles.aiSummaryTitle}>AI Summary</Text>
+                          <View style={styles.aiSummaryLines}>
+                            <View style={[styles.aiSummaryLine, { width: '80%' }]} />
+                            <View style={[styles.aiSummaryLine, { width: '60%' }]} />
+                            <View style={[styles.aiSummaryLine, { width: '90%' }]} />
+                          </View>
+                        </View>
+                      </LinearGradient>
+                    ) : (
+                      // Regular webpage preview
+                      <Image
+                        source={getPreviewImageWithFallback(bookmark)}
+                        style={styles.expandedPreviewImage}
+                        defaultSource={require('../../assets/images/icon.png')}
+                        resizeMode="cover"
+                        onError={() => {
+                          console.log('Screenshot failed for:', bookmark.domain);
+                        }}
+                      />
+                    )}
                   </View>
 
                   {/* Bottom content */}
@@ -373,10 +502,25 @@ export default function ClustersScreen() {
                     
                     {/* Domain badge */}
                     <View style={styles.expandedDomainRow}>
-                      <View style={[styles.expandedDomainBadge, { backgroundColor: 'rgba(0,0,0,0.15)' }]}>
-                        <Ionicons name="globe-outline" size={12} color={Colors[colorScheme ?? 'light'].tabIconDefault} />
-                        <Text style={[styles.expandedDomainText, { color: Colors[colorScheme ?? 'light'].tabIconDefault }]}>
-                          {bookmark.domain}
+                      <View style={[styles.expandedDomainBadge, { 
+                        backgroundColor: bookmark.url.startsWith('intellimark://summary/')
+                          ? 'rgba(255, 107, 157, 0.2)'
+                          : 'rgba(0,0,0,0.15)'
+                      }]}>
+                        <Ionicons 
+                          name={bookmark.url.startsWith('intellimark://summary/') ? "sparkles" : "globe-outline"} 
+                          size={12} 
+                          color={bookmark.url.startsWith('intellimark://summary/') 
+                            ? '#FF6B9D' 
+                            : Colors[colorScheme ?? 'light'].tabIconDefault
+                          } 
+                        />
+                        <Text style={[styles.expandedDomainText, { 
+                          color: bookmark.url.startsWith('intellimark://summary/')
+                            ? '#FF6B9D'
+                            : Colors[colorScheme ?? 'light'].tabIconDefault 
+                        }]}>
+                          {bookmark.url.startsWith('intellimark://summary/') ? 'AI Summary' : bookmark.domain}
                         </Text>
                       </View>
                     </View>
@@ -508,6 +652,15 @@ export default function ClustersScreen() {
                 </LinearGradient>
               </View>
             }
+          />
+        )}
+
+        {/* Summary Viewer */}
+        {summaryBookmark && (
+          <SummaryViewer
+            bookmark={summaryBookmark}
+            visible={!!summaryBookmark}
+            onClose={() => setSummaryBookmark(null)}
           />
         )}
       </LinearGradient>
@@ -868,5 +1021,72 @@ const styles = StyleSheet.create({
   },
   expandedCardActions: {
     opacity: 0.6,
+  },
+  selectionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  summaryButton: {
+    backgroundColor: '#FF6B9D',
+    shadowColor: '#FF6B9D',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cancelButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  aiSummaryPreview: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiSummaryContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  aiSummaryIcon: {
+    marginBottom: 8,
+    opacity: 0.9,
+  },
+  aiSummaryTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+    opacity: 0.95,
+  },
+  aiSummaryLines: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 6,
+  },
+  aiSummaryLine: {
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 2,
   },
 });

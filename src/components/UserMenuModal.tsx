@@ -11,6 +11,7 @@ import {
   ScrollView,
   Switch,
   Alert,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,6 +37,8 @@ export function UserMenuModal({ visible, onClose, onNavigate }: UserMenuModalPro
     email: '',
     plan: 'Free Plan'
   });
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [isEditingApiKey, setIsEditingApiKey] = useState(false);
   
   const slideAnim = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
@@ -84,9 +87,32 @@ export function UserMenuModal({ visible, onClose, onNavigate }: UserMenuModalPro
           plan: user.plan || 'Free Plan' // Get from user data or default to Free Plan
         });
       }
+      
+      // Load stored OpenAI API key
+      const storedApiKey = await AsyncStorage.getItem('openai_api_key');
+      if (storedApiKey) {
+        setOpenaiApiKey(storedApiKey);
+      }
     } catch (error) {
       console.log('Could not load user info:', error);
       // Keep default values
+    }
+  };
+
+  const saveApiKey = async (key: string) => {
+    try {
+      if (key.trim()) {
+        await AsyncStorage.setItem('openai_api_key', key.trim());
+        setOpenaiApiKey(key.trim());
+        Alert.alert('Success', 'OpenAI API key saved successfully');
+      } else {
+        await AsyncStorage.removeItem('openai_api_key');
+        setOpenaiApiKey('');
+        Alert.alert('Success', 'OpenAI API key removed');
+      }
+      setIsEditingApiKey(false);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save API key');
     }
   };
 
@@ -233,6 +259,63 @@ export function UserMenuModal({ visible, onClose, onNavigate }: UserMenuModalPro
                 
                 <Text style={styles.planLabel}>YOUR PLAN</Text>
                 <Text style={styles.planName}>{userInfo.plan}</Text>
+                
+                {/* OpenAI API Key Section */}
+                <View style={styles.apiKeySection}>
+                  <Text style={styles.apiKeyLabel}>OPENAI API KEY</Text>
+                  <Text style={styles.apiKeyDescription}>
+                    Add your OpenAI API key to enable AI summarization
+                  </Text>
+                  
+                  {isEditingApiKey ? (
+                    <View style={styles.apiKeyEditContainer}>
+                      <TextInput
+                        style={styles.apiKeyInput}
+                        value={openaiApiKey}
+                        onChangeText={setOpenaiApiKey}
+                        placeholder="sk-..."
+                        placeholderTextColor="rgba(0,0,0,0.4)"
+                        secureTextEntry
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      <View style={styles.apiKeyButtons}>
+                        <TouchableOpacity
+                          style={styles.apiKeySaveButton}
+                          onPress={() => saveApiKey(openaiApiKey)}
+                        >
+                          <Ionicons name="checkmark" size={16} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.apiKeyCancelButton}
+                          onPress={() => {
+                            setIsEditingApiKey(false);
+                            // Reset to stored value
+                            AsyncStorage.getItem('openai_api_key').then(key => {
+                              setOpenaiApiKey(key || '');
+                            });
+                          }}
+                        >
+                          <Ionicons name="close" size={16} color="rgba(0,0,0,0.6)" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.apiKeyDisplay}
+                      onPress={() => setIsEditingApiKey(true)}
+                    >
+                      <Text style={styles.apiKeyText}>
+                        {openaiApiKey ? '••••••••••••••••' : 'Tap to add API key'}
+                      </Text>
+                      <Ionicons 
+                        name="pencil" 
+                        size={14} 
+                        color="rgba(0,0,0,0.4)" 
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             </View>
 
@@ -440,5 +523,76 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     padding: 8,
+  },
+  apiKeySection: {
+    marginTop: 20,
+  },
+  apiKeyLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  apiKeyDescription: {
+    fontSize: 12,
+    color: 'rgba(0,0,0,0.6)',
+    marginBottom: 12,
+    lineHeight: 16,
+  },
+  apiKeyDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  apiKeyText: {
+    fontSize: 14,
+    color: 'rgba(0,0,0,0.7)',
+    fontFamily: 'monospace',
+  },
+  apiKeyEditContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  apiKeyInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.2)',
+    fontSize: 14,
+    color: 'rgba(0,0,0,0.8)',
+    fontFamily: 'monospace',
+  },
+  apiKeyButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  apiKeySaveButton: {
+    backgroundColor: '#4CAF50',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  apiKeyCancelButton: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
   },
 });

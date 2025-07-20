@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3001';
 
 export interface SummaryOptions {
@@ -42,15 +44,26 @@ export class AIService {
     token: string
   ): Promise<SummaryResponse> {
     try {
+      // Get user's OpenAI API key from storage
+      const userApiKey = await AsyncStorage.getItem('openai_api_key');
+      
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      };
+      
+      // Include user's API key if available
+      if (userApiKey) {
+        headers['X-OpenAI-API-Key'] = userApiKey;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/bookmarks/ai-summarize`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({
           bookmarkIds,
           options,
+          apiKey: userApiKey, // Also include in body for backwards compatibility
         }),
         // Note: AbortSignal.timeout not available in React Native, rely on server timeout
       });

@@ -625,13 +625,32 @@ export const generateSummary = async (
       });
     }
 
-    // Check if AI service is available
-    if (!aiService) {
-      return res.status(503).json({
+    // Get user's API key from request body or header
+    const userApiKey = req.body.apiKey || req.headers['x-openai-api-key'] as string;
+    
+    // Try to create AI service with user's key or fallback to default
+    let activeAIService: AIService | null = null;
+    
+    if (userApiKey) {
+      try {
+        activeAIService = AIService.withApiKey(userApiKey);
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            message: 'Invalid OpenAI API key provided. Please check your API key format.',
+            code: 'INVALID_API_KEY',
+          },
+        });
+      }
+    } else if (aiService) {
+      activeAIService = aiService;
+    } else {
+      return res.status(400).json({
         success: false,
         error: {
-          message: 'AI service is not available. Please check server configuration.',
-          code: 'AI_SERVICE_UNAVAILABLE',
+          message: 'OpenAI API key required. Please provide your API key to use AI summarization.',
+          code: 'API_KEY_REQUIRED',
         },
       });
     }
@@ -690,7 +709,7 @@ export const generateSummary = async (
     console.log(`Successfully extracted content from ${successfulExtractions.length} out of ${validBookmarks.length} URLs`);
 
     // Generate AI summary using the extracted content
-    const summaryResponse = await aiService.generateSummary({
+    const summaryResponse = await activeAIService.generateSummary({
       urls: successfulExtractions.map(c => c.url),
       titles: successfulExtractions.map(c => c.title),
       contents: successfulExtractions,

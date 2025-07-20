@@ -22,22 +22,35 @@ export interface SummaryResponse {
 }
 
 export class AIService {
-  private openai: OpenAI;
+  private openai: OpenAI | null = null;
   private static readonly MAX_TOKENS = 4000;
   private static readonly MODEL = 'gpt-4o'; // Use GPT-4o for better analysis
 
-  constructor() {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.');
+  constructor(apiKey?: string) {
+    if (apiKey) {
+      this.openai = new OpenAI({ apiKey });
+    } else {
+      // Fallback to environment variable for backward compatibility
+      const envApiKey = process.env.OPENAI_API_KEY;
+      if (envApiKey) {
+        this.openai = new OpenAI({ apiKey: envApiKey });
+      }
     }
-    
-    this.openai = new OpenAI({
-      apiKey,
-    });
+  }
+
+  // Static method to create service with user's API key
+  static withApiKey(apiKey: string): AIService {
+    if (!apiKey || !apiKey.startsWith('sk-')) {
+      throw new Error('Invalid OpenAI API key. API key must start with "sk-"');
+    }
+    return new AIService(apiKey);
   }
 
   async generateSummary(request: SummaryRequest): Promise<SummaryResponse> {
+    if (!this.openai) {
+      throw new Error('OpenAI API key not configured. Please provide a valid API key.');
+    }
+
     try {
       const { urls, titles, contents, options = {} } = request;
       const {

@@ -92,6 +92,15 @@ export default function DeclutterScreen() {
     checkAuthAndLoadBookmarks();
   }, []);
 
+  // Reset declutter state when bookmarks change (user visits page again)
+  useEffect(() => {
+    if (bookmarks.length > 0 && currentIndex >= bookmarks.length) {
+      setCurrentIndex(0);
+      setProcessed(0);
+      resetCardPosition();
+    }
+  }, [bookmarks]);
+
   const checkAuthAndLoadBookmarks = async () => {
     try {
       const authenticated = await authService.isAuthenticated();
@@ -195,21 +204,8 @@ export default function DeclutterScreen() {
       setCurrentIndex(prev => prev + 1);
       resetCardPosition();
     } else {
-      // All bookmarks processed
-      Alert.alert(
-        'All Done!', 
-        `You've reviewed all ${bookmarks.length} bookmarks. Great job decluttering!`,
-        [
-          {
-            text: 'Start Over',
-            onPress: () => {
-              setCurrentIndex(0);
-              setProcessed(0);
-              resetCardPosition();
-            }
-          }
-        ]
-      );
+      // All bookmarks processed - just move to completed state
+      setCurrentIndex(bookmarks.length);
     }
   };
 
@@ -327,21 +323,58 @@ export default function DeclutterScreen() {
               style={styles.cardGradient}
             >
               {/* Domain Badge */}
-              <View style={[styles.domainBadge, { backgroundColor: Colors[colorScheme ?? 'light'].tint + '20' }]}>
-                <Ionicons name="globe" size={16} color={Colors[colorScheme ?? 'light'].tint} />
-                <Text style={[styles.domainText, { color: Colors[colorScheme ?? 'light'].tint }]}>
-                  {currentBookmark.domain}
+              <View style={[styles.domainBadge, { 
+                backgroundColor: currentBookmark.url.startsWith('intellimark://summary/')
+                  ? 'rgba(255, 107, 157, 0.2)'
+                  : Colors[colorScheme ?? 'light'].tint + '20'
+              }]}>
+                <Ionicons 
+                  name={currentBookmark.url.startsWith('intellimark://summary/') ? "sparkles" : "globe"} 
+                  size={16} 
+                  color={currentBookmark.url.startsWith('intellimark://summary/') 
+                    ? '#FF6B9D' 
+                    : Colors[colorScheme ?? 'light'].tint
+                  } 
+                />
+                <Text style={[styles.domainText, { 
+                  color: currentBookmark.url.startsWith('intellimark://summary/')
+                    ? '#FF6B9D'
+                    : Colors[colorScheme ?? 'light'].tint 
+                }]}>
+                  {currentBookmark.url.startsWith('intellimark://summary/') ? 'AI Summary' : currentBookmark.domain}
                 </Text>
               </View>
 
-              {/* Rich Preview */}
+              {/* Rich Preview or AI Summary visual */}
               <View style={styles.previewContainer}>
-                <Image
-                  source={getPreviewImageWithFallback(currentBookmark)}
-                  style={styles.previewImage}
-                  defaultSource={require('../../assets/images/icon.png')}
-                  resizeMode="cover"
-                />
+                {currentBookmark.url.startsWith('intellimark://summary/') ? (
+                  // AI Summary custom preview
+                  <LinearGradient
+                    colors={['#FF6B9D', '#8B5FBF', '#4A90E2']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.aiSummaryPreview}
+                  >
+                    <View style={styles.aiSummaryContent}>
+                      <Ionicons name="sparkles" size={48} color="white" style={styles.aiSummaryIcon} />
+                      <Text style={styles.aiSummaryTitle}>AI Summary</Text>
+                      <View style={styles.aiSummaryLines}>
+                        <View style={[styles.aiSummaryLine, { width: '85%' }]} />
+                        <View style={[styles.aiSummaryLine, { width: '70%' }]} />
+                        <View style={[styles.aiSummaryLine, { width: '90%' }]} />
+                        <View style={[styles.aiSummaryLine, { width: '60%' }]} />
+                      </View>
+                    </View>
+                  </LinearGradient>
+                ) : (
+                  // Regular webpage preview
+                  <Image
+                    source={getPreviewImageWithFallback(currentBookmark)}
+                    style={styles.previewImage}
+                    defaultSource={require('../../assets/images/icon.png')}
+                    resizeMode="cover"
+                  />
+                )}
               </View>
 
               {/* Minimal Content - Only URL and Tags */}
@@ -580,5 +613,38 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  aiSummaryPreview: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiSummaryContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  aiSummaryIcon: {
+    marginBottom: 12,
+    opacity: 0.9,
+  },
+  aiSummaryTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 20,
+    textAlign: 'center',
+    opacity: 0.95,
+  },
+  aiSummaryLines: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aiSummaryLine: {
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 2,
   },
 });

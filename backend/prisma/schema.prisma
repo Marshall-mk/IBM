@@ -1,0 +1,69 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String
+  firstName       String?
+  lastName        String?
+  isEmailVerified Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  bookmarks       Bookmark[]
+  refreshTokens   RefreshToken[]
+  
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("refresh_tokens")
+}
+
+model Bookmark {
+  id          String   @id @default(cuid())
+  url         String
+  title       String
+  content     String?
+  summary     String?
+  domain      String
+  isRead      Boolean  @default(false)
+  isFavorite  Boolean  @default(false)
+  categories  String   @default("[]") // JSON array as string
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // AI Analysis (stored as JSON)
+  aiAnalysis  String?  // JSON string containing analysis data
+  
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("bookmarks")
+  @@index([userId])
+  @@index([domain])
+  @@index([isRead])
+  @@index([isFavorite])
+  @@index([createdAt])
+}
